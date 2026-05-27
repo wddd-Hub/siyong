@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AA 账本</title>
+    <meta name="theme-color" content="#10251f" />
+    <meta name="description" content="自用 AA 记账账本，支持区间统计、结算建议和批量清账。" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="icons/icon-192.png" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark">¥</span>
+          <div>
+            <h1>AA 账本</h1>
+            <p>共享支出与结算</p>
+          </div>
+        </div>
+
+        <nav class="tabs" aria-label="主要视图">
+          <button class="tab-button active" data-tab="overview" type="button">
+            <span aria-hidden="true">◎</span>
+            总览
+          </button>
+          <button class="tab-button" data-tab="expenses" type="button">
+            <span aria-hidden="true">＋</span>
+            记一笔
+          </button>
+          <button class="tab-button" data-tab="members" type="button">
+            <span aria-hidden="true">☷</span>
+            成员
+          </button>
+        </nav>
+
+        <section class="sidebar-panel">
+          <h2>账本成员</h2>
+          <form id="memberForm" class="inline-form">
+            <input id="memberName" type="text" maxlength="16" placeholder="新增成员" autocomplete="off" />
+            <button type="submit" title="添加成员">＋</button>
+          </form>
+          <div id="memberChips" class="chip-list"></div>
+        </section>
+      </aside>
+
+      <main class="main-content">
+        <section class="toolbar">
+          <div>
+            <p class="eyebrow">本地账本</p>
+            <h2 id="viewTitle">款项总览</h2>
+          </div>
+          <div class="toolbar-actions">
+            <div class="date-range-control" aria-label="日期区间">
+              <label>
+                开始
+                <input id="startDateFilter" type="date" />
+              </label>
+              <label>
+                结束
+                <input id="endDateFilter" type="date" />
+              </label>
+            </div>
+            <button id="installBtn" class="ghost-button install-button" type="button" hidden>安装</button>
+            <button id="exportBtn" class="ghost-button" type="button" title="导出数据">⇩</button>
+            <button id="resetBtn" class="danger-button" type="button">清空</button>
+          </div>
+        </section>
+
+        <section id="overviewView" class="view active">
+          <div class="metric-grid">
+            <article class="metric">
+              <span>总支出</span>
+              <strong id="totalExpense">¥0.00</strong>
+            </article>
+            <article class="metric">
+              <span>人均应付</span>
+              <strong id="averageExpense">¥0.00</strong>
+            </article>
+            <article class="metric">
+              <span>已记笔数</span>
+              <strong id="expenseCount">0</strong>
+            </article>
+          </div>
+
+          <div class="content-grid">
+            <section class="panel">
+              <div class="panel-heading">
+                <h3>成员余额</h3>
+                <span>正数应收，负数应付</span>
+              </div>
+              <div id="balanceList" class="balance-list"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <h3>结算建议</h3>
+                <span>自动生成最少转账方向</span>
+              </div>
+              <div id="settlementList" class="settlement-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="expensesView" class="view">
+          <form id="expenseForm" class="expense-form">
+            <div class="field-row">
+              <label>
+                金额
+                <input id="expenseAmount" type="number" min="0.01" step="0.01" placeholder="128.50" required />
+              </label>
+              <label>
+                付款人
+                <select id="payerSelect" required></select>
+              </label>
+            </div>
+
+            <label>
+              事项
+              <input id="expenseTitle" type="text" maxlength="32" placeholder="晚餐、打车、门票..." required />
+            </label>
+
+            <label>
+              日期
+              <input id="expenseDate" type="date" required />
+            </label>
+
+            <fieldset>
+              <legend>参与 AA 的成员</legend>
+              <div id="participantList" class="checkbox-grid"></div>
+            </fieldset>
+
+            <button class="primary-button" type="submit">记入账本</button>
+          </form>
+
+          <section class="panel expense-history">
+            <div class="panel-heading">
+              <h3>明细</h3>
+              <span id="historyHint">按时间倒序</span>
+            </div>
+            <div class="search-row">
+              <input id="expenseSearch" type="search" placeholder="搜索事项、成员、金额..." autocomplete="off" />
+              <button id="clearSearchBtn" class="ghost-button" type="button">清除</button>
+            </div>
+            <div class="bulk-actions">
+              <label class="bulk-select">
+                <input id="selectVisibleExpenses" type="checkbox" />
+                全选当前结果
+              </label>
+              <span id="selectedCount">已选 0 笔</span>
+              <button id="bulkDeleteBtn" class="danger-button" type="button" disabled>批量删除</button>
+            </div>
+            <div id="expenseList" class="expense-list"></div>
+          </section>
+        </section>
+
+        <section id="membersView" class="view">
+          <section class="panel">
+            <div class="panel-heading">
+              <h3>成员管理</h3>
+              <span>删除成员会同时移除相关记录</span>
+            </div>
+            <div id="memberTable" class="member-table"></div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <template id="emptyTemplate">
+      <div class="empty-state">
+        <strong>还没有数据</strong>
+        <p>先添加成员，再记一笔共同支出。</p>
+      </div>
+    </template>
+
+    <script src="app.js"></script>
+  </body>
+</html>
