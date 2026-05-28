@@ -32,6 +32,10 @@ select {
   font: inherit;
 }
 
+input[type="date"] {
+  cursor: pointer;
+}
+
 button {
   cursor: pointer;
 }
@@ -420,6 +424,78 @@ button {
   color: var(--gold);
 }
 
+.settlement-section-title {
+  margin: 4px 0 2px;
+  color: var(--accent-deep);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.transfer-detail-item small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settlement-clickable {
+  cursor: pointer;
+}
+
+.settlement-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settlement-bills {
+  display: grid;
+  gap: 8px;
+  margin: -2px 0 8px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--surface-soft);
+}
+
+.settlement-bills-title {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.settlement-bill-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--surface);
+}
+
+.settlement-bill-item small,
+.settlement-bill-amounts small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settlement-bill-amounts {
+  text-align: right;
+}
+
+.compact-empty {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fbfcfb;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .expense-form {
   display: grid;
   gap: 14px;
@@ -690,6 +766,22 @@ button:disabled {
   }
 
   .member-expense-amount {
+    text-align: left;
+  }
+
+  .settlement-side {
+    justify-content: space-between;
+  }
+
+  .settlement-bills {
+    margin-left: 0;
+  }
+
+  .settlement-bill-item {
+    grid-template-columns: 1fr;
+  }
+
+  .settlement-bill-amounts {
     text-align: left;
   }
 }

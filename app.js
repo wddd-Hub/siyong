@@ -15,6 +15,7 @@ let dateRange = normalizeDateRange(state.dateRange || rangeFromLatestExpense() |
 let expandedMemberId = null;
 let selectedExpenseIds = new Set();
 let deferredInstallPrompt = null;
+let expandedSettlementKey = null;
 
 const els = {
   tabs: document.querySelectorAll(".tab-button"),
@@ -51,6 +52,7 @@ const els = {
 };
 
 els.expenseDate.valueAsDate = new Date();
+enableDatePickerOnClick(els.expenseDate);
 
 els.tabs.forEach((button) => {
   button.addEventListener("click", () => switchTab(button.dataset.tab));
@@ -60,6 +62,7 @@ els.startDateFilter.addEventListener("change", () => {
   dateRange = normalizeDateRange({ start: els.startDateFilter.value, end: els.endDateFilter.value });
   state.dateRange = dateRange;
   expandedMemberId = null;
+  expandedSettlementKey = null;
   selectedExpenseIds.clear();
   els.expenseSearch.value = "";
   saveAndRender();
@@ -69,6 +72,7 @@ els.endDateFilter.addEventListener("change", () => {
   dateRange = normalizeDateRange({ start: els.startDateFilter.value, end: els.endDateFilter.value });
   state.dateRange = dateRange;
   expandedMemberId = null;
+  expandedSettlementKey = null;
   selectedExpenseIds.clear();
   els.expenseSearch.value = "";
   saveAndRender();
@@ -179,6 +183,7 @@ els.resetBtn.addEventListener("click", () => {
   if (!confirm("确定清空当前账本吗？此操作不可撤销。")) return;
   dateRange = defaultDateRange();
   expandedMemberId = null;
+  expandedSettlementKey = null;
   selectedExpenseIds.clear();
   state = { members: [], expenses: [], dateRange };
   saveAndRender();
@@ -201,6 +206,14 @@ function loadState() {
 function createId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
   return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function enableDatePickerOnClick(input) {
+  input.addEventListener("click", () => {
+    if (typeof input.showPicker === "function") {
+      input.showPicker();
+    }
+  });
 }
 
 function readStorage() {
@@ -527,21 +540,118 @@ function renderBalances() {
 
 function renderSettlements() {
   els.settlementList.innerHTML = "";
+  const transferDetails = calculateTransferDetails();
   const settlements = calculateSettlements();
-  if (settlements.length === 0) {
+  if (transferDetails.length === 0 && settlements.length === 0) {
     els.settlementList.append(emptyNode("暂无需结算", "所有成员当前已经平账。"));
     return;
   }
 
+  els.settlementList.append(sectionTitle("转账明细"));
+  if (transferDetails.length === 0) {
+    els.settlementList.append(compactEmptyNode("当前区间没有需要转账的分摊明细。"));
+  } else {
+    transferDetails.forEach((transfer) => {
+      const key = `detail:${transfer.fromId}->${transfer.toId}`;
+      const item = document.createElement("div");
+      item.className = "settlement-item transfer-detail-item settlement-clickable";
+      item.dataset.toggleSettlement = key;
+      item.innerHTML = `
+        <div>
+          <span>${escapeHtml(transfer.from)} → ${escapeHtml(transfer.to)}</span>
+          <small>${transfer.count} 笔分摊 · 点击查看账单</small>
+        </div>
+        <div class="settlement-side">
+          <strong>${formatAmount(transfer.amount)}</strong>
+          <button class="icon-button" type="button" title="查看账单">${expandedSettlementKey === key ? "−" : "+"}</button>
+        </div>
+      `;
+      els.settlementList.append(item);
+      if (expandedSettlementKey === key) {
+        els.settlementList.append(renderSettlementBills(transfer.items, "分摊来源账单"));
+      }
+    });
+  }
+
+  els.settlementList.append(sectionTitle("最少转账方向"));
+  if (settlements.length === 0) {
+    els.settlementList.append(compactEmptyNode("原始分摊相互抵消后无需转账。"));
+    return;
+  }
+
   settlements.forEach((settlement) => {
+    const key = `minimal:${settlement.fromId}->${settlement.toId}`;
     const item = document.createElement("div");
-    item.className = "settlement-item";
+    item.className = "settlement-item settlement-clickable";
+    item.dataset.toggleSettlement = key;
     item.innerHTML = `
       <span>${escapeHtml(settlement.from)} → ${escapeHtml(settlement.to)}</span>
-      <strong>${formatAmount(settlement.amount)}</strong>
+      <div class="settlement-side">
+        <strong>${formatAmount(settlement.amount)}</strong>
+        <button class="icon-button" type="button" title="查看账单">${expandedSettlementKey === key ? "−" : "+"}</button>
+      </div>
     `;
     els.settlementList.append(item);
+    if (expandedSettlementKey === key) {
+      els.settlementList.append(renderSettlementBills(getRelatedSettlementBills(settlement.fromId, settlement.toId), "相关账单"));
+    }
   });
+
+  document.querySelectorAll("[data-toggle-settlement]").forEach((button) => {
+    button.addEventListener("click", () => {
+      expandedSettlementKey = expandedSettlementKey === button.dataset.toggleSettlement ? null : button.dataset.toggleSettlement;
+      renderSettlements();
+    });
+  });
+}
+
+function renderSettlementBills(items, title) {
+  const memberNames = new Map(state.members.map((member) => [member.id, member.name]));
+  const wrapper = document.createElement("div");
+  wrapper.className = "settlement-bills";
+  const heading = document.createElement("div");
+  heading.className = "settlement-bills-title";
+  heading.textContent = title;
+  wrapper.append(heading);
+
+  if (items.length === 0) {
+    wrapper.append(compactEmptyNode("没有找到对应账单。"));
+    return wrapper;
+  }
+
+  items.forEach((entry) => {
+    const expense = entry.expense || entry;
+    const participants = expense.participantIds.map((id) => memberNames.get(id)).filter(Boolean);
+    const row = document.createElement("article");
+    row.className = "settlement-bill-item";
+    row.innerHTML = `
+      <div>
+        <strong>${escapeHtml(expense.title)}</strong>
+        <small>${expense.date} · ${escapeHtml(memberNames.get(expense.payerId) || "未知")} 付款 · ${participants.join("、") || "无"} 参与</small>
+      </div>
+      <div class="settlement-bill-amounts">
+        <strong>${formatAmount(expense.amount)}</strong>
+        ${entry.share ? `<small>对应分摊 ${formatAmount(entry.share)}</small>` : ""}
+      </div>
+    `;
+    wrapper.append(row);
+  });
+
+  return wrapper;
+}
+
+function sectionTitle(text) {
+  const title = document.createElement("div");
+  title.className = "settlement-section-title";
+  title.textContent = text;
+  return title;
+}
+
+function compactEmptyNode(text) {
+  const node = document.createElement("div");
+  node.className = "compact-empty";
+  node.textContent = text;
+  return node;
 }
 
 function calculateBalances(expenses = getActiveExpenses()) {
@@ -567,6 +677,47 @@ function calculateBalances(expenses = getActiveExpenses()) {
   });
 
   return balances;
+}
+
+function calculateTransferDetails(expenses = getActiveExpenses()) {
+  const memberNames = new Map(state.members.map((member) => [member.id, member.name]));
+  const transfers = new Map();
+
+  expenses.forEach((expense) => {
+    if (!memberNames.has(expense.payerId) || expense.participantIds.length === 0) return;
+    const shares = getExpenseShares(expense);
+    Object.entries(shares).forEach(([memberId, amount]) => {
+      const roundedAmount = roundMoney(Number(amount));
+      if (memberId === expense.payerId || !memberNames.has(memberId) || roundedAmount < 0.01) return;
+      const key = `${memberId}->${expense.payerId}`;
+      const existing = transfers.get(key) || {
+        fromId: memberId,
+        toId: expense.payerId,
+        from: memberNames.get(memberId),
+        to: memberNames.get(expense.payerId),
+        amount: 0,
+        count: 0,
+        items: [],
+      };
+      existing.amount = roundMoney(existing.amount + roundedAmount);
+      existing.count += 1;
+      existing.items.push({ expense, share: roundedAmount });
+      transfers.set(key, existing);
+    });
+  });
+
+  return [...transfers.values()]
+    .filter((transfer) => transfer.amount >= 0.01)
+    .sort((a, b) => b.amount - a.amount || a.from.localeCompare(b.from, "zh-CN"));
+}
+
+function getExpenseShares(expense) {
+  if (expense.shares && typeof expense.shares === "object") {
+    return expense.shares;
+  }
+
+  const share = expense.participantIds.length ? expense.amount / expense.participantIds.length : 0;
+  return Object.fromEntries(expense.participantIds.map((id) => [id, share]));
 }
 
 function formatShareDetails(expense, memberNames) {
@@ -633,6 +784,8 @@ function calculateSettlements() {
 
     if (amount >= 0.01) {
       settlements.push({
+        fromId: debtor.id,
+        toId: creditor.id,
         from: memberNames.get(debtor.id) || "未知",
         to: memberNames.get(creditor.id) || "未知",
         amount,
@@ -646,6 +799,18 @@ function calculateSettlements() {
   }
 
   return settlements;
+}
+
+function getRelatedSettlementBills(fromId, toId) {
+  return getActiveExpenses()
+    .filter(
+      (expense) =>
+        expense.payerId === fromId ||
+        expense.payerId === toId ||
+        expense.participantIds.includes(fromId) ||
+        expense.participantIds.includes(toId),
+    )
+    .sort((a, b) => new Date(b.date) - new Date(a.date) || b.createdAt - a.createdAt);
 }
 
 function removeMember(id) {
