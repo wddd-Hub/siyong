@@ -594,6 +594,7 @@ function renderBalances() {
 function renderSettlements() {
   els.settlementList.innerHTML = "";
   const transferDetails = calculateTransferDetails();
+  const netTransferDetails = calculateNetTransferDetails(transferDetails);
   const settlements = calculateSettlements();
   if (transferDetails.length === 0 && settlements.length === 0) {
     els.settlementList.append(emptyNode("暂无需结算", "所有成员当前已经平账。"));
@@ -622,6 +623,32 @@ function renderSettlements() {
       els.settlementList.append(item);
       if (expandedSettlementKey === key) {
         els.settlementList.append(renderSettlementBills(transfer.items, "分摊来源账单"));
+      }
+    });
+  }
+
+  els.settlementList.append(sectionTitle("抵消后明细"));
+  if (netTransferDetails.length === 0) {
+    els.settlementList.append(compactEmptyNode("双向往来抵消后无需转账。"));
+  } else {
+    netTransferDetails.forEach((transfer) => {
+      const key = `net:${transfer.fromId}->${transfer.toId}`;
+      const item = document.createElement("div");
+      item.className = "settlement-item transfer-detail-item settlement-clickable";
+      item.dataset.toggleSettlement = key;
+      item.innerHTML = `
+        <div>
+          <span>${escapeHtml(transfer.from)} → ${escapeHtml(transfer.to)}</span>
+          <small>已抵消反向往来 · 点击查看账单</small>
+        </div>
+        <div class="settlement-side">
+          <strong>${formatAmount(transfer.amount)}</strong>
+          <button class="icon-button" type="button" title="查看账单">${expandedSettlementKey === key ? "−" : "+"}</button>
+        </div>
+      `;
+      els.settlementList.append(item);
+      if (expandedSettlementKey === key) {
+        els.settlementList.append(renderSettlementBills(transfer.items, "抵消相关账单"));
       }
     });
   }
@@ -762,6 +789,46 @@ function calculateTransferDetails(expenses = getActiveExpenses()) {
   return [...transfers.values()]
     .filter((transfer) => transfer.amount >= 0.01)
     .sort((a, b) => b.amount - a.amount || a.from.localeCompare(b.from, "zh-CN"));
+}
+
+function calculateNetTransferDetails(transfers) {
+  const pairs = new Map();
+
+  transfers.forEach((transfer) => {
+    const pairIds = [transfer.fromId, transfer.toId].sort();
+    const key = pairIds.join("<>");
+    const existing = pairs.get(key) || { entries: [] };
+    existing.entries.push(transfer);
+    pairs.set(key, existing);
+  });
+
+  const netTransfers = [];
+  pairs.forEach(({ entries }) => {
+    if (entries.length === 1) {
+      const transfer = entries[0];
+      netTransfers.push({ ...transfer, items: transfer.items });
+      return;
+    }
+
+    const [first, second] = entries;
+    const netAmount = roundMoney(first.amount - second.amount);
+    if (Math.abs(netAmount) < 0.01) return;
+
+    const winner = netAmount > 0 ? first : second;
+    netTransfers.push({
+      fromId: winner.fromId,
+      toId: winner.toId,
+      from: winner.from,
+      to: winner.to,
+      amount: Math.abs(netAmount),
+      count: first.count + second.count,
+      items: [...first.items, ...second.items].sort(
+        (a, b) => new Date(b.expense.date) - new Date(a.expense.date) || b.expense.createdAt - a.expense.createdAt,
+      ),
+    });
+  });
+
+  return netTransfers.sort((a, b) => b.amount - a.amount || a.from.localeCompare(b.from, "zh-CN"));
 }
 
 function getExpenseShares(expense) {
