@@ -47,6 +47,8 @@ const els = {
   settlementList: document.querySelector("#settlementList"),
   installBtn: document.querySelector("#installBtn"),
   exportBtn: document.querySelector("#exportBtn"),
+  importBtn: document.querySelector("#importBtn"),
+  importFileInput: document.querySelector("#importFileInput"),
   resetBtn: document.querySelector("#resetBtn"),
   emptyTemplate: document.querySelector("#emptyTemplate"),
 };
@@ -179,6 +181,35 @@ els.exportBtn.addEventListener("click", () => {
   URL.revokeObjectURL(url);
 });
 
+els.importBtn.addEventListener("click", () => {
+  els.importFileInput.click();
+});
+
+els.importFileInput.addEventListener("change", async () => {
+  const file = els.importFileInput.files?.[0];
+  els.importFileInput.value = "";
+  if (!file) return;
+
+  try {
+    const imported = JSON.parse(await file.text());
+    if (!isValidImportedState(imported)) {
+      alert("这个文件不是有效的 AA 账本数据。");
+      return;
+    }
+    if (!confirm("上传的数据会覆盖当前设备上的账本，确定继续吗？")) return;
+    state = normalizeImportedState(imported);
+    dateRange = normalizeDateRange(state.dateRange || rangeFromLatestExpense() || defaultDateRange());
+    expandedMemberId = null;
+    expandedSettlementKey = null;
+    selectedExpenseIds.clear();
+    els.expenseSearch.value = "";
+    saveAndRender();
+    alert("账本数据已导入。");
+  } catch {
+    alert("读取失败，请确认上传的是导出的 JSON 文件。");
+  }
+});
+
 els.resetBtn.addEventListener("click", () => {
   if (!confirm("确定清空当前账本吗？此操作不可撤销。")) return;
   dateRange = defaultDateRange();
@@ -201,6 +232,24 @@ function loadState() {
   } catch {
     return structuredClone(defaultState);
   }
+}
+
+function isValidImportedState(value) {
+  return Boolean(
+    value &&
+      Array.isArray(value.members) &&
+      Array.isArray(value.expenses) &&
+      value.members.every((member) => member.id && member.name) &&
+      value.expenses.every((expense) => expense.id && expense.title && Number(expense.amount) >= 0 && expense.payerId && expense.date),
+  );
+}
+
+function normalizeImportedState(value) {
+  return {
+    members: value.members,
+    expenses: value.expenses,
+    dateRange: normalizeDateRange(value.dateRange || rangeFromExpenses(value.expenses) || defaultDateRange()),
+  };
 }
 
 function createId() {
@@ -250,7 +299,11 @@ function defaultDateRange() {
 }
 
 function rangeFromLatestExpense() {
-  const latestDate = state.expenses
+  return rangeFromExpenses(state.expenses);
+}
+
+function rangeFromExpenses(expenses) {
+  const latestDate = expenses
     .map((expense) => normalizeDate(expense.date))
     .filter(Boolean)
     .sort((a, b) => b.localeCompare(a))[0];
