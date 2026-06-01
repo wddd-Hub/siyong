@@ -150,6 +150,8 @@ els.expenseForm.addEventListener("submit", (event) => {
     alert("请选择至少一位参与 AA 的成员。");
     return;
   }
+  const weights = readParticipantWeights(participantIds);
+  const shares = calculateWeightedShares(Number(els.expenseAmount.value), weights);
 
   state.expenses.push({
     id: createId(),
@@ -157,7 +159,8 @@ els.expenseForm.addEventListener("submit", (event) => {
     amount: Number(els.expenseAmount.value),
     payerId: els.payerSelect.value,
     participantIds,
-    shares: null,
+    weights,
+    shares,
     date: els.expenseDate.value,
     createdAt: Date.now(),
   });
@@ -255,6 +258,34 @@ function normalizeImportedState(value) {
 function createId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
   return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function readParticipantWeights(participantIds) {
+  return Object.fromEntries(
+    participantIds.map((id) => {
+      const input = document.querySelector(`[data-weight-for="${CSS.escape(id)}"]`);
+      const value = Math.max(0.1, Number(input?.value) || 1);
+      return [id, roundMoney(value)];
+    }),
+  );
+}
+
+function calculateWeightedShares(amount, weights) {
+  const entries = Object.entries(weights);
+  const totalWeight = entries.reduce((sum, [, weight]) => sum + Number(weight), 0);
+  if (totalWeight <= 0) return {};
+
+  let allocated = 0;
+  return Object.fromEntries(
+    entries.map(([id, weight], index) => {
+      const share =
+        index === entries.length - 1
+          ? roundMoney(amount - allocated)
+          : roundMoney((amount * Number(weight)) / totalWeight);
+      allocated = roundMoney(allocated + share);
+      return [id, share];
+    }),
+  );
 }
 
 function enableDatePickerOnClick(input) {
@@ -478,7 +509,8 @@ function renderExpenseForm() {
     label.className = "check-pill";
     label.innerHTML = `
       <input name="participants" type="checkbox" value="${member.id}" checked />
-      ${escapeHtml(member.name)}
+      <span>${escapeHtml(member.name)}</span>
+      <input class="weight-input" type="number" min="0.1" step="0.1" value="1" data-weight-for="${member.id}" title="AA 权重" />
     `;
     els.participantList.append(label);
   });
@@ -843,7 +875,11 @@ function getExpenseShares(expense) {
 function formatShareDetails(expense, memberNames) {
   if (expense.shares && typeof expense.shares === "object") {
     const details = Object.entries(expense.shares)
-      .map(([id, amount]) => `${escapeHtml(memberNames.get(id) || "未知")} ${formatAmount(Number(amount))}`)
+      .map(([id, amount]) => {
+        const weight = expense.weights?.[id];
+        const weightText = weight && Number(weight) !== 1 ? `（${Number(weight)}份）` : "";
+        return `${escapeHtml(memberNames.get(id) || "未知")} ${formatAmount(Number(amount))}${weightText}`;
+      })
       .join(" · ");
     return details ? `分摊：${details}` : "分摊：无";
   }
