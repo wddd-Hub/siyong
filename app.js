@@ -16,6 +16,7 @@ let expandedMemberId = null;
 let selectedExpenseIds = new Set();
 let deferredInstallPrompt = null;
 let expandedSettlementKey = null;
+let editingExpenseId = null;
 
 const els = {
   tabs: document.querySelectorAll(".tab-button"),
@@ -31,6 +32,8 @@ const els = {
   expenseAmount: document.querySelector("#expenseAmount"),
   expenseTitle: document.querySelector("#expenseTitle"),
   expenseDate: document.querySelector("#expenseDate"),
+  saveExpenseBtn: document.querySelector("#saveExpenseBtn"),
+  cancelEditBtn: document.querySelector("#cancelEditBtn"),
   startDateFilter: document.querySelector("#startDateFilter"),
   endDateFilter: document.querySelector("#endDateFilter"),
   historyHint: document.querySelector("#historyHint"),
@@ -152,9 +155,7 @@ els.expenseForm.addEventListener("submit", (event) => {
   }
   const weights = readParticipantWeights(participantIds);
   const shares = calculateWeightedShares(Number(els.expenseAmount.value), weights);
-
-  state.expenses.push({
-    id: createId(),
+  const payload = {
     title: els.expenseTitle.value.trim(),
     amount: Number(els.expenseAmount.value),
     payerId: els.payerSelect.value,
@@ -162,15 +163,30 @@ els.expenseForm.addEventListener("submit", (event) => {
     weights,
     shares,
     date: els.expenseDate.value,
-    createdAt: Date.now(),
-  });
+  };
+
+  if (editingExpenseId) {
+    state.expenses = state.expenses.map((expense) =>
+      expense.id === editingExpenseId ? { ...expense, ...payload, updatedAt: Date.now() } : expense,
+    );
+  } else {
+    state.expenses.push({
+      id: createId(),
+      ...payload,
+      createdAt: Date.now(),
+    });
+  }
 
   dateRange = rangeForDate(els.expenseDate.value);
   state.dateRange = dateRange;
   selectedExpenseIds.clear();
-  els.expenseForm.reset();
-  els.expenseDate.valueAsDate = new Date();
+  clearExpenseForm();
   saveAndRender();
+});
+
+els.cancelEditBtn.addEventListener("click", () => {
+  clearExpenseForm();
+  renderExpenseForm();
 });
 
 els.exportBtn.addEventListener("click", () => {
@@ -495,25 +511,32 @@ function renderMemberDetail(memberId) {
 }
 
 function renderExpenseForm() {
+  const editingExpense = state.expenses.find((expense) => expense.id === editingExpenseId);
   els.payerSelect.innerHTML = "";
   state.members.forEach((member) => {
     const option = document.createElement("option");
     option.value = member.id;
     option.textContent = member.name;
+    option.selected = editingExpense?.payerId === member.id;
     els.payerSelect.append(option);
   });
 
   els.participantList.innerHTML = "";
   state.members.forEach((member) => {
+    const checked = editingExpense ? editingExpense.participantIds.includes(member.id) : true;
+    const weight = editingExpense?.weights?.[member.id] || 1;
     const label = document.createElement("label");
     label.className = "check-pill";
     label.innerHTML = `
-      <input name="participants" type="checkbox" value="${member.id}" checked />
+      <input name="participants" type="checkbox" value="${member.id}" ${checked ? "checked" : ""} />
       <span>${escapeHtml(member.name)}</span>
-      <input class="weight-input" type="number" min="0.1" step="0.1" value="1" data-weight-for="${member.id}" title="AA 权重" />
+      <input class="weight-input" type="number" min="0.1" step="0.1" value="${weight}" data-weight-for="${member.id}" title="AA 权重" />
     `;
     els.participantList.append(label);
   });
+
+  els.saveExpenseBtn.textContent = editingExpense ? "保存修改" : "记入账本";
+  els.cancelEditBtn.hidden = !editingExpense;
 }
 
 function renderExpenses() {
@@ -552,6 +575,7 @@ function renderExpenses() {
         </div>
         <strong>${formatAmount(expense.amount)}</strong>
         <div class="expense-actions">
+          <button class="icon-button" type="button" title="编辑" data-edit-expense="${expense.id}">✎</button>
           <button class="icon-button" type="button" title="删除" data-remove-expense="${expense.id}">×</button>
         </div>
       `;
@@ -561,9 +585,14 @@ function renderExpenses() {
   document.querySelectorAll("[data-remove-expense]").forEach((button) => {
     button.addEventListener("click", () => {
       selectedExpenseIds.delete(button.dataset.removeExpense);
+      if (editingExpenseId === button.dataset.removeExpense) clearExpenseForm();
       state.expenses = state.expenses.filter((expense) => expense.id !== button.dataset.removeExpense);
       saveAndRender();
     });
+  });
+
+  document.querySelectorAll("[data-edit-expense]").forEach((button) => {
+    button.addEventListener("click", () => startEditExpense(button.dataset.editExpense));
   });
 
   document.querySelectorAll("[data-select-expense]").forEach((checkbox) => {
@@ -586,6 +615,27 @@ function renderBulkActions(visibleExpenses) {
   els.selectVisibleExpenses.disabled = visibleExpenses.length === 0;
   els.selectVisibleExpenses.checked = visibleExpenses.length > 0 && selectedVisibleCount === visibleExpenses.length;
   els.selectVisibleExpenses.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleExpenses.length;
+}
+
+function startEditExpense(id) {
+  const expense = state.expenses.find((item) => item.id === id);
+  if (!expense) return;
+  editingExpenseId = id;
+  selectedExpenseIds.clear();
+  els.expenseAmount.value = expense.amount;
+  els.expenseTitle.value = expense.title;
+  els.expenseDate.value = expense.date;
+  switchTab("expenses");
+  renderExpenseForm();
+  renderExpenses();
+  els.expenseAmount.focus();
+}
+
+function clearExpenseForm() {
+  editingExpenseId = null;
+  els.expenseForm.reset();
+  els.expenseDate.valueAsDate = new Date();
+  renderExpenseForm();
 }
 
 function renderOverview() {
