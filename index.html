@@ -52,6 +52,7 @@
           <div>
             <p class="eyebrow">本地账本</p>
             <h2 id="viewTitle">款项总览</h2>
+            <p id="backupStatus" class="backup-status">尚未备份</p>
           </div>
           <div class="toolbar-actions">
             <div class="date-range-control" aria-label="日期区间">
@@ -70,6 +71,10 @@
             <input id="importFileInput" class="visually-hidden" type="file" accept="application/json,.json" />
             <button id="resetBtn" class="danger-button" type="button">清空</button>
           </div>
+        </section>
+        <section id="updatePrompt" class="update-prompt" hidden>
+          <span>发现新版本</span>
+          <button id="reloadAppBtn" class="ghost-button" type="button">刷新更新</button>
         </section>
 
         <section id="overviewView" class="view active">
@@ -100,11 +105,19 @@
             <section class="panel">
               <div class="panel-heading">
                 <h3>结算建议</h3>
-                <span>自动生成最少转账方向</span>
+                <button id="toggleRawTransfersBtn" class="ghost-button compact-button" type="button">显示原始明细</button>
               </div>
               <div id="settlementList" class="settlement-list"></div>
             </section>
           </div>
+
+          <section class="panel stats-panel">
+            <div class="panel-heading">
+              <h3>成员统计</h3>
+              <span>付款、消费与净额</span>
+            </div>
+            <div id="statsList" class="stats-list"></div>
+          </section>
         </section>
 
         <section id="expensesView" class="view">
@@ -130,6 +143,13 @@
               <input id="expenseDate" type="date" required />
             </label>
 
+            <label>
+              备注
+              <input id="expenseNote" type="text" maxlength="80" placeholder="可选：记录特殊说明" />
+            </label>
+
+            <div id="editStatus" class="edit-status" hidden></div>
+
             <fieldset>
               <legend>参与 AA 的成员</legend>
               <div id="participantList" class="checkbox-grid"></div>
@@ -148,6 +168,9 @@
             </div>
             <div class="search-row">
               <input id="expenseSearch" type="search" placeholder="搜索事项、成员、金额..." autocomplete="off" />
+              <select id="memberFilter" title="按成员筛选">
+                <option value="">全部成员</option>
+              </select>
               <button id="clearSearchBtn" class="ghost-button" type="button">清除</button>
             </div>
             <div class="bulk-actions">
@@ -164,10 +187,10 @@
 
         <section id="membersView" class="view">
           <section class="panel">
-            <div class="panel-heading">
-              <h3>成员管理</h3>
-              <span>删除成员会同时移除相关记录</span>
-            </div>
+              <div class="panel-heading">
+                <h3>成员管理</h3>
+              <span>有账单记录的成员会被保护</span>
+              </div>
             <div id="memberTable" class="member-table"></div>
           </section>
         </section>

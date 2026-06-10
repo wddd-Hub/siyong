@@ -1,4 +1,5 @@
 const STORAGE_KEY = "aa-ledger-state-v2";
+const BACKUP_KEY = "aa-ledger-last-backup";
 const currency = new Intl.NumberFormat("zh-CN", {
   style: "currency",
   currency: "CNY",
@@ -17,6 +18,7 @@ let selectedExpenseIds = new Set();
 let deferredInstallPrompt = null;
 let expandedSettlementKey = null;
 let editingExpenseId = null;
+let showRawTransfers = false;
 
 const els = {
   tabs: document.querySelectorAll(".tab-button"),
@@ -32,12 +34,19 @@ const els = {
   expenseAmount: document.querySelector("#expenseAmount"),
   expenseTitle: document.querySelector("#expenseTitle"),
   expenseDate: document.querySelector("#expenseDate"),
+  expenseNote: document.querySelector("#expenseNote"),
+  editStatus: document.querySelector("#editStatus"),
   saveExpenseBtn: document.querySelector("#saveExpenseBtn"),
   cancelEditBtn: document.querySelector("#cancelEditBtn"),
+  backupStatus: document.querySelector("#backupStatus"),
+  updatePrompt: document.querySelector("#updatePrompt"),
+  reloadAppBtn: document.querySelector("#reloadAppBtn"),
+  toggleRawTransfersBtn: document.querySelector("#toggleRawTransfersBtn"),
   startDateFilter: document.querySelector("#startDateFilter"),
   endDateFilter: document.querySelector("#endDateFilter"),
   historyHint: document.querySelector("#historyHint"),
   expenseSearch: document.querySelector("#expenseSearch"),
+  memberFilter: document.querySelector("#memberFilter"),
   clearSearchBtn: document.querySelector("#clearSearchBtn"),
   selectVisibleExpenses: document.querySelector("#selectVisibleExpenses"),
   selectedCount: document.querySelector("#selectedCount"),
@@ -48,6 +57,7 @@ const els = {
   expenseCount: document.querySelector("#expenseCount"),
   balanceList: document.querySelector("#balanceList"),
   settlementList: document.querySelector("#settlementList"),
+  statsList: document.querySelector("#statsList"),
   installBtn: document.querySelector("#installBtn"),
   exportBtn: document.querySelector("#exportBtn"),
   importBtn: document.querySelector("#importBtn"),
@@ -70,6 +80,7 @@ els.startDateFilter.addEventListener("change", () => {
   expandedSettlementKey = null;
   selectedExpenseIds.clear();
   els.expenseSearch.value = "";
+  els.memberFilter.value = "";
   saveAndRender();
 });
 
@@ -80,6 +91,7 @@ els.endDateFilter.addEventListener("change", () => {
   expandedSettlementKey = null;
   selectedExpenseIds.clear();
   els.expenseSearch.value = "";
+  els.memberFilter.value = "";
   saveAndRender();
 });
 
@@ -90,8 +102,24 @@ els.expenseSearch.addEventListener("input", () => {
 
 els.clearSearchBtn.addEventListener("click", () => {
   els.expenseSearch.value = "";
+  els.memberFilter.value = "";
   selectedExpenseIds.clear();
   renderExpenses();
+});
+
+els.memberFilter.addEventListener("change", () => {
+  selectedExpenseIds.clear();
+  renderExpenses();
+});
+
+els.toggleRawTransfersBtn.addEventListener("click", () => {
+  showRawTransfers = !showRawTransfers;
+  expandedSettlementKey = null;
+  renderSettlements();
+});
+
+els.reloadAppBtn.addEventListener("click", () => {
+  location.reload();
 });
 
 els.selectVisibleExpenses.addEventListener("change", () => {
@@ -133,7 +161,20 @@ window.addEventListener("appinstalled", () => {
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch(() => {});
+    navigator.serviceWorker
+      .register("./sw.js")
+      .then((registration) => {
+        registration.addEventListener("updatefound", () => {
+          const worker = registration.installing;
+          if (!worker) return;
+          worker.addEventListener("statechange", () => {
+            if (worker.state === "installed" && navigator.serviceWorker.controller) {
+              els.updatePrompt.hidden = false;
+            }
+          });
+        });
+      })
+      .catch(() => {});
   });
 }
 
@@ -163,6 +204,7 @@ els.expenseForm.addEventListener("submit", (event) => {
     weights,
     shares,
     date: els.expenseDate.value,
+    note: els.expenseNote.value.trim(),
   };
 
   if (editingExpenseId) {
@@ -198,6 +240,8 @@ els.exportBtn.addEventListener("click", () => {
   link.download = `aa-ledger-${new Date().toISOString().slice(0, 10)}.json`;
   link.click();
   URL.revokeObjectURL(url);
+  writeBackupTime(new Date().toISOString());
+  renderBackupStatus();
 });
 
 els.importBtn.addEventListener("click", () => {
@@ -328,6 +372,22 @@ function writeStorage(value) {
   }
 }
 
+function readBackupTime() {
+  try {
+    return localStorage.getItem(BACKUP_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeBackupTime(value) {
+  try {
+    localStorage.setItem(BACKUP_KEY, value);
+  } catch {
+    window.__aaLedgerBackupFallback = value;
+  }
+}
+
 function getActiveExpenses() {
   return state.expenses.filter((expense) => isDateInRange(expense.date, dateRange));
 }
@@ -335,10 +395,14 @@ function getActiveExpenses() {
 function getVisibleExpenses() {
   const memberNames = new Map(state.members.map((member) => [member.id, member.name]));
   const searchTerm = els.expenseSearch.value.trim().toLowerCase();
+  const memberId = els.memberFilter.value;
   const rangeExpenses = getActiveExpenses();
-  return searchTerm
-    ? rangeExpenses.filter((expense) => expenseMatchesSearch(expense, memberNames, searchTerm))
+  const memberExpenses = memberId
+    ? rangeExpenses.filter((expense) => expense.payerId === memberId || expense.participantIds.includes(memberId))
     : rangeExpenses;
+  return searchTerm
+    ? memberExpenses.filter((expense) => expenseMatchesSearch(expense, memberNames, searchTerm))
+    : memberExpenses;
 }
 
 function defaultDateRange() {
@@ -388,6 +452,17 @@ function formatDateRange(range) {
   return `${range.start} 至 ${range.end}`;
 }
 
+function formatDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "未知";
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function saveAndRender() {
   state.dateRange = dateRange;
   writeStorage(JSON.stringify(state));
@@ -407,11 +482,17 @@ function switchTab(tab) {
 }
 
 function render() {
+  renderBackupStatus();
   renderDateRange();
   renderMembers();
   renderExpenseForm();
   renderExpenses();
   renderOverview();
+}
+
+function renderBackupStatus() {
+  const backupTime = readBackupTime();
+  els.backupStatus.textContent = backupTime ? `上次备份：${formatDateTime(backupTime)}` : "尚未备份，建议先导出一次";
 }
 
 function renderDateRange() {
@@ -498,6 +579,7 @@ function renderMemberDetail(memberId) {
         <strong>${escapeHtml(expense.title)}</strong>
         <small>${expense.date} · ${escapeHtml(memberNames.get(expense.payerId) || "未知")} 付款</small>
         <div class="participant-line">${roles || "相关记录"}</div>
+        ${expense.note ? `<div class="note-line">备注：${escapeHtml(expense.note)}</div>` : ""}
       </div>
       <div class="member-expense-amount">
         <strong>${formatAmount(expense.amount)}</strong>
@@ -531,16 +613,27 @@ function renderExpenseForm() {
       <input name="participants" type="checkbox" value="${member.id}" ${checked ? "checked" : ""} />
       <span>${escapeHtml(member.name)}</span>
       <input class="weight-input" type="number" min="0.1" step="0.1" value="${weight}" data-weight-for="${member.id}" title="AA 权重" />
+      <span class="weight-shortcuts">
+        <button type="button" data-weight-preset="${member.id}:1">1</button>
+        <button type="button" data-weight-preset="${member.id}:1.5">1.5</button>
+        <button type="button" data-weight-preset="${member.id}:2">2</button>
+      </span>
     `;
     els.participantList.append(label);
   });
 
   els.saveExpenseBtn.textContent = editingExpense ? "保存修改" : "记入账本";
   els.cancelEditBtn.hidden = !editingExpense;
+  els.editStatus.hidden = !editingExpense;
+  els.editStatus.textContent = editingExpense
+    ? `正在编辑：${editingExpense.title}（${editingExpense.date}）`
+    : "";
+  bindWeightShortcuts();
 }
 
 function renderExpenses() {
   els.expenseList.innerHTML = "";
+  renderMemberFilter();
   const memberNames = new Map(state.members.map((member) => [member.id, member.name]));
   const rangeExpenses = getActiveExpenses();
   const visibleExpenses = getVisibleExpenses();
@@ -572,6 +665,7 @@ function renderExpenses() {
           <small>${expense.date} · ${escapeHtml(memberNames.get(expense.payerId) || "未知")} 付款 · ${participants.length} 人 AA</small>
           <div class="participant-line">参与：${participants.map(escapeHtml).join("、") || "无"}</div>
           <div class="share-line">${shareDetails}</div>
+          ${expense.note ? `<div class="note-line">备注：${escapeHtml(expense.note)}</div>` : ""}
         </div>
         <strong>${formatAmount(expense.amount)}</strong>
         <div class="expense-actions">
@@ -607,6 +701,28 @@ function renderExpenses() {
   });
 }
 
+function renderMemberFilter() {
+  const current = els.memberFilter.value;
+  els.memberFilter.innerHTML = `<option value="">全部成员</option>`;
+  state.members.forEach((member) => {
+    const option = document.createElement("option");
+    option.value = member.id;
+    option.textContent = member.name;
+    option.selected = current === member.id;
+    els.memberFilter.append(option);
+  });
+}
+
+function bindWeightShortcuts() {
+  document.querySelectorAll("[data-weight-preset]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const [memberId, value] = button.dataset.weightPreset.split(":");
+      const input = document.querySelector(`[data-weight-for="${CSS.escape(memberId)}"]`);
+      if (input) input.value = value;
+    });
+  });
+}
+
 function renderBulkActions(visibleExpenses) {
   const visibleIds = visibleExpenses.map((expense) => expense.id);
   const selectedVisibleCount = visibleIds.filter((id) => selectedExpenseIds.has(id)).length;
@@ -625,6 +741,7 @@ function startEditExpense(id) {
   els.expenseAmount.value = expense.amount;
   els.expenseTitle.value = expense.title;
   els.expenseDate.value = expense.date;
+  els.expenseNote.value = expense.note || "";
   switchTab("expenses");
   renderExpenseForm();
   renderExpenses();
@@ -648,6 +765,43 @@ function renderOverview() {
 
   renderBalances();
   renderSettlements();
+  renderStats(rangeExpenses);
+}
+
+function renderStats(expenses) {
+  els.statsList.innerHTML = "";
+  if (state.members.length === 0) {
+    els.statsList.append(emptyNode("还没有成员", "添加成员后会显示统计。"));
+    return;
+  }
+
+  const paid = new Map(state.members.map((member) => [member.id, 0]));
+  const consumed = new Map(state.members.map((member) => [member.id, 0]));
+  expenses.forEach((expense) => {
+    if (paid.has(expense.payerId)) {
+      paid.set(expense.payerId, paid.get(expense.payerId) + expense.amount);
+    }
+    Object.entries(getExpenseShares(expense)).forEach(([id, amount]) => {
+      if (consumed.has(id)) {
+        consumed.set(id, consumed.get(id) + Number(amount));
+      }
+    });
+  });
+
+  state.members.forEach((member) => {
+    const paidAmount = roundMoney(paid.get(member.id) || 0);
+    const consumedAmount = roundMoney(consumed.get(member.id) || 0);
+    const balance = roundMoney(paidAmount - consumedAmount);
+    const item = document.createElement("div");
+    item.className = "stat-item";
+    item.innerHTML = `
+      <strong>${escapeHtml(member.name)}</strong>
+      <span>付款 ${formatAmount(paidAmount)}</span>
+      <span>消费 ${formatAmount(consumedAmount)}</span>
+      <span class="${balanceClass(balance)}">净额 ${formatAmount(balance)}</span>
+    `;
+    els.statsList.append(item);
+  });
 }
 
 function renderBalances() {
@@ -678,35 +832,38 @@ function renderSettlements() {
   const transferDetails = calculateTransferDetails();
   const netTransferDetails = calculateNetTransferDetails(transferDetails);
   const settlements = calculateSettlements();
+  els.toggleRawTransfersBtn.textContent = showRawTransfers ? "隐藏原始明细" : "显示原始明细";
   if (transferDetails.length === 0 && settlements.length === 0) {
     els.settlementList.append(emptyNode("暂无需结算", "所有成员当前已经平账。"));
     return;
   }
 
-  els.settlementList.append(sectionTitle("转账明细"));
-  if (transferDetails.length === 0) {
-    els.settlementList.append(compactEmptyNode("当前区间没有需要转账的分摊明细。"));
-  } else {
-    transferDetails.forEach((transfer) => {
-      const key = `detail:${transfer.fromId}->${transfer.toId}`;
-      const item = document.createElement("div");
-      item.className = "settlement-item transfer-detail-item settlement-clickable";
-      item.dataset.toggleSettlement = key;
-      item.innerHTML = `
-        <div>
-          <span>${escapeHtml(transfer.from)} → ${escapeHtml(transfer.to)}</span>
-          <small>${transfer.count} 笔分摊 · 点击查看账单</small>
-        </div>
-        <div class="settlement-side">
-          <strong>${formatAmount(transfer.amount)}</strong>
-          <button class="icon-button" type="button" title="查看账单">${expandedSettlementKey === key ? "−" : "+"}</button>
-        </div>
-      `;
-      els.settlementList.append(item);
-      if (expandedSettlementKey === key) {
-        els.settlementList.append(renderSettlementBills(transfer.items, "分摊来源账单"));
-      }
-    });
+  if (showRawTransfers) {
+    els.settlementList.append(sectionTitle("转账明细"));
+    if (transferDetails.length === 0) {
+      els.settlementList.append(compactEmptyNode("当前区间没有需要转账的分摊明细。"));
+    } else {
+      transferDetails.forEach((transfer) => {
+        const key = `detail:${transfer.fromId}->${transfer.toId}`;
+        const item = document.createElement("div");
+        item.className = "settlement-item transfer-detail-item settlement-clickable";
+        item.dataset.toggleSettlement = key;
+        item.innerHTML = `
+          <div>
+            <span>${escapeHtml(transfer.from)} → ${escapeHtml(transfer.to)}</span>
+            <small>${transfer.count} 笔分摊 · 点击查看账单</small>
+          </div>
+          <div class="settlement-side">
+            <strong>${formatAmount(transfer.amount)}</strong>
+            <button class="icon-button" type="button" title="查看账单">${expandedSettlementKey === key ? "−" : "+"}</button>
+          </div>
+        `;
+        els.settlementList.append(item);
+        if (expandedSettlementKey === key) {
+          els.settlementList.append(renderSettlementBills(transfer.items, "分摊来源账单"));
+        }
+      });
+    }
   }
 
   els.settlementList.append(sectionTitle("抵消后明细"));
@@ -790,6 +947,7 @@ function renderSettlementBills(items, title) {
       <div>
         <strong>${escapeHtml(expense.title)}</strong>
         <small>${expense.date} · ${escapeHtml(memberNames.get(expense.payerId) || "未知")} 付款 · ${participants.join("、") || "无"} 参与</small>
+        ${expense.note ? `<div class="note-line">备注：${escapeHtml(expense.note)}</div>` : ""}
       </div>
       <div class="settlement-bill-amounts">
         <strong>${formatAmount(expense.amount)}</strong>
@@ -947,6 +1105,7 @@ function expenseMatchesSearch(expense, memberNames, searchTerm) {
     : "";
   const haystack = [
     expense.title,
+    expense.note,
     expense.date,
     expense.amount,
     formatAmount(expense.amount),
@@ -1021,12 +1180,17 @@ function getRelatedSettlementBills(fromId, toId) {
 
 function removeMember(id) {
   const member = state.members.find((item) => item.id === id);
-  if (!member || !confirm(`删除 ${member.name} 并移除相关记录？`)) return;
+  if (!member) return;
+  const relatedCount = state.expenses.filter(
+    (expense) => expense.payerId === id || expense.participantIds.includes(id),
+  ).length;
+  if (relatedCount > 0) {
+    alert(`${member.name} 还有 ${relatedCount} 笔相关账单。请先编辑或删除这些账单，再删除成员。`);
+    return;
+  }
+  if (!confirm(`删除 ${member.name}？`)) return;
   if (expandedMemberId === id) expandedMemberId = null;
   state.members = state.members.filter((item) => item.id !== id);
-  state.expenses = state.expenses.filter(
-    (expense) => expense.payerId !== id && !expense.participantIds.includes(id),
-  );
   saveAndRender();
 }
 
