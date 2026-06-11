@@ -148,8 +148,6 @@
               <input id="expenseNote" type="text" maxlength="80" placeholder="可选：记录特殊说明" />
             </label>
 
-            <div id="editStatus" class="edit-status" hidden></div>
-
             <fieldset>
               <legend>参与 AA 的成员</legend>
               <div id="participantList" class="checkbox-grid"></div>
@@ -157,7 +155,6 @@
 
             <div class="form-actions">
               <button id="saveExpenseBtn" class="primary-button" type="submit">记入账本</button>
-              <button id="cancelEditBtn" class="ghost-button" type="button" hidden>取消编辑</button>
             </div>
           </form>
 
@@ -196,6 +193,54 @@
         </section>
       </main>
     </div>
+
+    <section id="editExpenseModal" class="modal-backdrop" hidden>
+      <form id="editExpenseForm" class="modal-panel">
+        <div class="modal-heading">
+          <div>
+            <p class="eyebrow">编辑账单</p>
+            <h2 id="editModalTitle">修改明细</h2>
+          </div>
+          <button id="closeEditModalBtn" class="icon-button" type="button" title="关闭">×</button>
+        </div>
+
+        <div class="field-row">
+          <label>
+            金额
+            <input id="editExpenseAmount" type="number" min="0.01" step="0.01" required />
+          </label>
+          <label>
+            付款人
+            <select id="editPayerSelect" required></select>
+          </label>
+        </div>
+
+        <label>
+          事项
+          <input id="editExpenseTitle" type="text" maxlength="32" required />
+        </label>
+
+        <label>
+          日期
+          <input id="editExpenseDate" type="date" required />
+        </label>
+
+        <label>
+          备注
+          <input id="editExpenseNote" type="text" maxlength="80" placeholder="可选：记录特殊说明" />
+        </label>
+
+        <fieldset>
+          <legend>参与 AA 的成员</legend>
+          <div id="editParticipantList" class="checkbox-grid"></div>
+        </fieldset>
+
+        <div class="form-actions">
+          <button class="primary-button" type="submit">保存修改</button>
+          <button id="cancelEditModalBtn" class="ghost-button" type="button">取消</button>
+        </div>
+      </form>
+    </section>
 
     <template id="emptyTemplate">
       <div class="empty-state">

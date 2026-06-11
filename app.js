@@ -35,9 +35,18 @@ const els = {
   expenseTitle: document.querySelector("#expenseTitle"),
   expenseDate: document.querySelector("#expenseDate"),
   expenseNote: document.querySelector("#expenseNote"),
-  editStatus: document.querySelector("#editStatus"),
   saveExpenseBtn: document.querySelector("#saveExpenseBtn"),
-  cancelEditBtn: document.querySelector("#cancelEditBtn"),
+  editExpenseModal: document.querySelector("#editExpenseModal"),
+  editExpenseForm: document.querySelector("#editExpenseForm"),
+  editModalTitle: document.querySelector("#editModalTitle"),
+  closeEditModalBtn: document.querySelector("#closeEditModalBtn"),
+  cancelEditModalBtn: document.querySelector("#cancelEditModalBtn"),
+  editExpenseAmount: document.querySelector("#editExpenseAmount"),
+  editExpenseTitle: document.querySelector("#editExpenseTitle"),
+  editExpenseDate: document.querySelector("#editExpenseDate"),
+  editExpenseNote: document.querySelector("#editExpenseNote"),
+  editPayerSelect: document.querySelector("#editPayerSelect"),
+  editParticipantList: document.querySelector("#editParticipantList"),
   backupStatus: document.querySelector("#backupStatus"),
   updatePrompt: document.querySelector("#updatePrompt"),
   reloadAppBtn: document.querySelector("#reloadAppBtn"),
@@ -207,17 +216,11 @@ els.expenseForm.addEventListener("submit", (event) => {
     note: els.expenseNote.value.trim(),
   };
 
-  if (editingExpenseId) {
-    state.expenses = state.expenses.map((expense) =>
-      expense.id === editingExpenseId ? { ...expense, ...payload, updatedAt: Date.now() } : expense,
-    );
-  } else {
-    state.expenses.push({
-      id: createId(),
-      ...payload,
-      createdAt: Date.now(),
-    });
-  }
+  state.expenses.push({
+    id: createId(),
+    ...payload,
+    createdAt: Date.now(),
+  });
 
   dateRange = rangeForDate(els.expenseDate.value);
   state.dateRange = dateRange;
@@ -226,9 +229,41 @@ els.expenseForm.addEventListener("submit", (event) => {
   saveAndRender();
 });
 
-els.cancelEditBtn.addEventListener("click", () => {
-  clearExpenseForm();
-  renderExpenseForm();
+els.editExpenseForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const expense = state.expenses.find((item) => item.id === editingExpenseId);
+  if (!expense) return;
+  const participantIds = [...els.editParticipantList.querySelectorAll("[name='editParticipants']:checked")].map(
+    (item) => item.value,
+  );
+  if (participantIds.length === 0) {
+    alert("请选择至少一位参与 AA 的成员。");
+    return;
+  }
+  const weights = readParticipantWeights(participantIds, "edit");
+  const shares = calculateWeightedShares(Number(els.editExpenseAmount.value), weights);
+  const payload = {
+    title: els.editExpenseTitle.value.trim(),
+    amount: Number(els.editExpenseAmount.value),
+    payerId: els.editPayerSelect.value,
+    participantIds,
+    weights,
+    shares,
+    date: els.editExpenseDate.value,
+    note: els.editExpenseNote.value.trim(),
+    updatedAt: Date.now(),
+  };
+  state.expenses = state.expenses.map((item) => (item.id === editingExpenseId ? { ...item, ...payload } : item));
+  dateRange = rangeForDate(payload.date);
+  state.dateRange = dateRange;
+  closeEditModal();
+  saveAndRender();
+});
+
+els.closeEditModalBtn.addEventListener("click", closeEditModal);
+els.cancelEditModalBtn.addEventListener("click", closeEditModal);
+els.editExpenseModal.addEventListener("click", (event) => {
+  if (event.target === els.editExpenseModal) closeEditModal();
 });
 
 els.exportBtn.addEventListener("click", () => {
@@ -320,10 +355,11 @@ function createId() {
   return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function readParticipantWeights(participantIds) {
+function readParticipantWeights(participantIds, scope = "new") {
+  const attr = scope === "edit" ? "data-edit-weight-for" : "data-weight-for";
   return Object.fromEntries(
     participantIds.map((id) => {
-      const input = document.querySelector(`[data-weight-for="${CSS.escape(id)}"]`);
+      const input = document.querySelector(`[${attr}="${CSS.escape(id)}"]`);
       const value = Math.max(0.1, Number(input?.value) || 1);
       return [id, roundMoney(value)];
     }),
@@ -593,26 +629,22 @@ function renderMemberDetail(memberId) {
 }
 
 function renderExpenseForm() {
-  const editingExpense = state.expenses.find((expense) => expense.id === editingExpenseId);
   els.payerSelect.innerHTML = "";
   state.members.forEach((member) => {
     const option = document.createElement("option");
     option.value = member.id;
     option.textContent = member.name;
-    option.selected = editingExpense?.payerId === member.id;
     els.payerSelect.append(option);
   });
 
   els.participantList.innerHTML = "";
   state.members.forEach((member) => {
-    const checked = editingExpense ? editingExpense.participantIds.includes(member.id) : true;
-    const weight = editingExpense?.weights?.[member.id] || 1;
     const label = document.createElement("label");
     label.className = "check-pill";
     label.innerHTML = `
-      <input name="participants" type="checkbox" value="${member.id}" ${checked ? "checked" : ""} />
+      <input name="participants" type="checkbox" value="${member.id}" checked />
       <span>${escapeHtml(member.name)}</span>
-      <input class="weight-input" type="number" min="0.1" step="0.1" value="${weight}" data-weight-for="${member.id}" title="AA 权重" />
+      <input class="weight-input" type="number" min="0.1" step="0.1" value="1" data-weight-for="${member.id}" title="AA 权重" />
       <span class="weight-shortcuts">
         <button type="button" data-weight-preset="${member.id}:1">1</button>
         <button type="button" data-weight-preset="${member.id}:1.5">1.5</button>
@@ -622,13 +654,46 @@ function renderExpenseForm() {
     els.participantList.append(label);
   });
 
-  els.saveExpenseBtn.textContent = editingExpense ? "保存修改" : "记入账本";
-  els.cancelEditBtn.hidden = !editingExpense;
-  els.editStatus.hidden = !editingExpense;
-  els.editStatus.textContent = editingExpense
-    ? `正在编辑：${editingExpense.title}（${editingExpense.date}）`
-    : "";
+  els.saveExpenseBtn.textContent = "记入账本";
   bindWeightShortcuts();
+}
+
+function renderEditModal(expense) {
+  els.editModalTitle.textContent = `${expense.title}（${expense.date}）`;
+  els.editExpenseAmount.value = expense.amount;
+  els.editExpenseTitle.value = expense.title;
+  els.editExpenseDate.value = expense.date;
+  els.editExpenseNote.value = expense.note || "";
+
+  els.editPayerSelect.innerHTML = "";
+  state.members.forEach((member) => {
+    const option = document.createElement("option");
+    option.value = member.id;
+    option.textContent = member.name;
+    option.selected = expense.payerId === member.id;
+    els.editPayerSelect.append(option);
+  });
+
+  els.editParticipantList.innerHTML = "";
+  state.members.forEach((member) => {
+    const checked = expense.participantIds.includes(member.id);
+    const weight = expense.weights?.[member.id] || 1;
+    const label = document.createElement("label");
+    label.className = "check-pill";
+    label.innerHTML = `
+      <input name="editParticipants" type="checkbox" value="${member.id}" ${checked ? "checked" : ""} />
+      <span>${escapeHtml(member.name)}</span>
+      <input class="weight-input" type="number" min="0.1" step="0.1" value="${weight}" data-edit-weight-for="${member.id}" title="AA 权重" />
+      <span class="weight-shortcuts">
+        <button type="button" data-edit-weight-preset="${member.id}:1">1</button>
+        <button type="button" data-edit-weight-preset="${member.id}:1.5">1.5</button>
+        <button type="button" data-edit-weight-preset="${member.id}:2">2</button>
+      </span>
+    `;
+    els.editParticipantList.append(label);
+  });
+
+  bindWeightShortcuts("edit");
 }
 
 function renderExpenses() {
@@ -679,7 +744,7 @@ function renderExpenses() {
   document.querySelectorAll("[data-remove-expense]").forEach((button) => {
     button.addEventListener("click", () => {
       selectedExpenseIds.delete(button.dataset.removeExpense);
-      if (editingExpenseId === button.dataset.removeExpense) clearExpenseForm();
+      if (editingExpenseId === button.dataset.removeExpense) closeEditModal();
       state.expenses = state.expenses.filter((expense) => expense.id !== button.dataset.removeExpense);
       saveAndRender();
     });
@@ -713,11 +778,14 @@ function renderMemberFilter() {
   });
 }
 
-function bindWeightShortcuts() {
-  document.querySelectorAll("[data-weight-preset]").forEach((button) => {
+function bindWeightShortcuts(scope = "new") {
+  const presetAttr = scope === "edit" ? "data-edit-weight-preset" : "data-weight-preset";
+  const inputAttr = scope === "edit" ? "data-edit-weight-for" : "data-weight-for";
+  document.querySelectorAll(`[${presetAttr}]`).forEach((button) => {
     button.addEventListener("click", () => {
-      const [memberId, value] = button.dataset.weightPreset.split(":");
-      const input = document.querySelector(`[data-weight-for="${CSS.escape(memberId)}"]`);
+      const valueText = scope === "edit" ? button.dataset.editWeightPreset : button.dataset.weightPreset;
+      const [memberId, value] = valueText.split(":");
+      const input = document.querySelector(`[${inputAttr}="${CSS.escape(memberId)}"]`);
       if (input) input.value = value;
     });
   });
@@ -738,14 +806,10 @@ function startEditExpense(id) {
   if (!expense) return;
   editingExpenseId = id;
   selectedExpenseIds.clear();
-  els.expenseAmount.value = expense.amount;
-  els.expenseTitle.value = expense.title;
-  els.expenseDate.value = expense.date;
-  els.expenseNote.value = expense.note || "";
-  switchTab("expenses");
-  renderExpenseForm();
-  renderExpenses();
-  els.expenseAmount.focus();
+  renderEditModal(expense);
+  els.editExpenseModal.hidden = false;
+  document.body.classList.add("modal-open");
+  els.editExpenseAmount.focus();
 }
 
 function clearExpenseForm() {
@@ -753,6 +817,13 @@ function clearExpenseForm() {
   els.expenseForm.reset();
   els.expenseDate.valueAsDate = new Date();
   renderExpenseForm();
+}
+
+function closeEditModal() {
+  editingExpenseId = null;
+  els.editExpenseForm.reset();
+  els.editExpenseModal.hidden = true;
+  document.body.classList.remove("modal-open");
 }
 
 function renderOverview() {

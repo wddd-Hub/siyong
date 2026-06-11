@@ -26,6 +26,10 @@ body {
   color: var(--ink);
 }
 
+body.modal-open {
+  overflow: hidden;
+}
+
 button,
 input,
 select {
@@ -297,6 +301,48 @@ button {
 
 .view.active {
   display: block;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(16, 37, 31, 0.48);
+}
+
+.modal-backdrop[hidden] {
+  display: none;
+}
+
+.modal-panel {
+  display: grid;
+  gap: 14px;
+  width: min(720px, 100%);
+  max-height: min(820px, calc(100vh - 40px));
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  background: var(--surface);
+  box-shadow: 0 24px 70px rgba(16, 37, 31, 0.28);
+}
+
+.modal-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+}
+
+.modal-heading h2 {
+  margin: 4px 0 0;
+  font-size: 22px;
+  line-height: 1.2;
 }
 
 .metric-grid {
