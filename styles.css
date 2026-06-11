@@ -229,6 +229,10 @@ button {
   font-weight: 700;
 }
 
+.update-prompt[hidden] {
+  display: none;
+}
+
 .compact-button {
   min-height: 32px;
   padding: 0 10px;
