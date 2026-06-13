@@ -410,9 +410,15 @@ button {
   min-height: 62vh;
 }
 
-.notes-textarea {
+.note-form {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.note-input {
   width: 100%;
-  min-height: 52vh;
+  min-height: 104px;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 14px;
@@ -423,10 +429,38 @@ button {
   line-height: 1.65;
 }
 
-.notes-textarea:focus,
+.note-input:focus,
 .date-range-control input:focus {
   outline: 2px solid rgba(21, 127, 112, 0.2);
   border-color: var(--accent);
+}
+
+.notes-list {
+  display: grid;
+  gap: 10px;
+}
+
+.note-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  align-items: start;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcfb;
+}
+
+.note-item p {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.note-item small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
 }
 
 .stats-list {

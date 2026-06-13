@@ -8,7 +8,7 @@ const currency = new Intl.NumberFormat("zh-CN", {
 const defaultState = {
   members: [],
   expenses: [],
-  notes: "",
+  notes: [],
   dateRange: defaultDateRange(),
 };
 
@@ -68,7 +68,9 @@ const els = {
   balanceList: document.querySelector("#balanceList"),
   settlementList: document.querySelector("#settlementList"),
   statsList: document.querySelector("#statsList"),
-  ledgerNotes: document.querySelector("#ledgerNotes"),
+  noteForm: document.querySelector("#noteForm"),
+  noteText: document.querySelector("#noteText"),
+  notesList: document.querySelector("#notesList"),
   notesStatus: document.querySelector("#notesStatus"),
   installBtn: document.querySelector("#installBtn"),
   exportBtn: document.querySelector("#exportBtn"),
@@ -133,14 +135,18 @@ els.toggleRawTransfersBtn.addEventListener("click", () => {
   renderSettlements();
 });
 
-els.ledgerNotes.addEventListener("input", () => {
-  state.notes = els.ledgerNotes.value;
-  writeStorage(JSON.stringify(state));
-  els.notesStatus.textContent = "已保存";
-  window.clearTimeout(els.notesStatus._timer);
-  els.notesStatus._timer = window.setTimeout(() => {
-    els.notesStatus.textContent = "自动保存";
-  }, 1200);
+els.noteForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const text = els.noteText.value.trim();
+  if (!text) return;
+  const notes = getNotesList();
+  notes.unshift({
+    id: createId(),
+    text,
+    createdAt: Date.now(),
+  });
+  saveNotesList(notes);
+  els.noteText.value = "";
 });
 
 els.reloadAppBtn.addEventListener("click", () => {
@@ -330,7 +336,7 @@ els.resetBtn.addEventListener("click", () => {
   expandedMemberId = null;
   expandedSettlementKey = null;
   selectedExpenseIds.clear();
-  state = { members: [], expenses: [], notes: "", dateRange };
+  state = { members: [], expenses: [], notes: [], dateRange };
   saveAndRender();
 });
 
@@ -362,7 +368,7 @@ function normalizeImportedState(value) {
   return {
     members: value.members,
     expenses: value.expenses,
-    notes: value.notes || "",
+    notes: normalizeNotes(value.notes),
     dateRange: normalizeDateRange(value.dateRange || rangeFromExpenses(value.expenses) || defaultDateRange()),
   };
 }
@@ -546,9 +552,59 @@ function render() {
 }
 
 function renderNotes() {
-  if (els.ledgerNotes.value !== (state.notes || "")) {
-    els.ledgerNotes.value = state.notes || "";
+  const notes = getNotesList();
+  els.notesStatus.textContent = `${notes.length} 条备注`;
+  els.notesList.innerHTML = "";
+  if (notes.length === 0) {
+    els.notesList.append(emptyNode("还没有备注", "在上方写一条备注，方便记录规则或待办。"));
+    return;
   }
+
+  notes.forEach((note) => {
+    const item = document.createElement("article");
+    item.className = "note-item";
+    item.innerHTML = `
+      <div>
+        <p>${escapeHtml(note.text)}</p>
+        <small>${formatDateTime(note.createdAt || Date.now())}</small>
+      </div>
+      <button class="icon-button" type="button" title="删除备注" data-remove-note="${note.id}">×</button>
+    `;
+    els.notesList.append(item);
+  });
+
+  document.querySelectorAll("[data-remove-note]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const note = notes.find((item) => item.id === button.dataset.removeNote);
+      if (!note || !confirm("确定删除这条备注吗？")) return;
+      saveNotesList(notes.filter((item) => item.id !== note.id));
+    });
+  });
+}
+
+function normalizeNotes(value) {
+  if (Array.isArray(value)) {
+    return value
+      .filter((note) => note && typeof note.text === "string" && note.text.trim())
+      .map((note) => ({
+        id: note.id || createId(),
+        text: note.text.trim(),
+        createdAt: note.createdAt || Date.now(),
+      }));
+  }
+  if (typeof value === "string" && value.trim()) {
+    return [{ id: "legacy-note", text: value.trim(), createdAt: Date.now() }];
+  }
+  return [];
+}
+
+function getNotesList() {
+  return normalizeNotes(state.notes);
+}
+
+function saveNotesList(notes) {
+  state.notes = notes;
+  saveAndRender();
 }
 
 function renderBackupStatus() {

@@ -202,9 +202,16 @@
           <section class="panel notes-panel">
             <div class="panel-heading">
               <h3>账本备注</h3>
-              <span id="notesStatus">自动保存</span>
+              <span id="notesStatus">0 条备注</span>
             </div>
-            <textarea id="ledgerNotes" class="notes-textarea" maxlength="5000" placeholder="可以记录长期说明、结算规则、特殊约定或待办事项..."></textarea>
+            <form id="noteForm" class="note-form">
+              <label>
+                新增备注
+                <textarea id="noteText" class="note-input" maxlength="500" placeholder="记录长期说明、结算规则、特殊约定或待办事项..."></textarea>
+              </label>
+              <button class="primary-button" type="submit">添加备注</button>
+            </form>
+            <div id="notesList" class="notes-list"></div>
           </section>
         </section>
       </main>
