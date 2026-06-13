@@ -247,27 +247,45 @@ button {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .date-range-control {
   display: grid;
-  grid-template-columns: repeat(2, 142px);
-  gap: 8px;
+  grid-template-columns: repeat(2, minmax(150px, 1fr));
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  background: #fbfcfb;
+  box-shadow: 0 8px 20px rgba(28, 43, 34, 0.05);
   align-items: end;
 }
 
 .date-range-control label {
-  gap: 4px;
+  gap: 5px;
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
 }
 
+.date-range-control label span {
+  padding-left: 2px;
+}
+
 .date-range-control input {
-  min-height: 40px;
+  min-height: 42px;
   background: var(--surface);
   font-size: 13px;
   font-weight: 600;
+  cursor: pointer;
+}
+
+.quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .ghost-button,
@@ -386,6 +404,29 @@ button {
 
 .stats-panel {
   margin-top: 12px;
+}
+
+.notes-panel {
+  min-height: 62vh;
+}
+
+.notes-textarea {
+  width: 100%;
+  min-height: 52vh;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  resize: vertical;
+  background: #fbfcfb;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.65;
+}
+
+.notes-textarea:focus,
+.date-range-control input:focus {
+  outline: 2px solid rgba(21, 127, 112, 0.2);
+  border-color: var(--accent);
 }
 
 .stats-list {
@@ -863,6 +904,7 @@ button:disabled {
 
   .toolbar-actions {
     width: 100%;
+    justify-content: stretch;
   }
 
   .date-range-control {
@@ -871,7 +913,14 @@ button:disabled {
     width: 100%;
   }
 
-  .toolbar-actions button {
+  .quick-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .toolbar-actions button,
+  .quick-actions button {
     flex: 1;
   }
 

@@ -8,6 +8,7 @@ const currency = new Intl.NumberFormat("zh-CN", {
 const defaultState = {
   members: [],
   expenses: [],
+  notes: "",
   dateRange: defaultDateRange(),
 };
 
@@ -67,6 +68,8 @@ const els = {
   balanceList: document.querySelector("#balanceList"),
   settlementList: document.querySelector("#settlementList"),
   statsList: document.querySelector("#statsList"),
+  ledgerNotes: document.querySelector("#ledgerNotes"),
+  notesStatus: document.querySelector("#notesStatus"),
   installBtn: document.querySelector("#installBtn"),
   exportBtn: document.querySelector("#exportBtn"),
   importBtn: document.querySelector("#importBtn"),
@@ -77,6 +80,9 @@ const els = {
 
 els.expenseDate.valueAsDate = new Date();
 enableDatePickerOnClick(els.expenseDate);
+enableDatePickerOnClick(els.startDateFilter);
+enableDatePickerOnClick(els.endDateFilter);
+enableDatePickerOnClick(els.editExpenseDate);
 
 els.tabs.forEach((button) => {
   button.addEventListener("click", () => switchTab(button.dataset.tab));
@@ -125,6 +131,16 @@ els.toggleRawTransfersBtn.addEventListener("click", () => {
   showRawTransfers = !showRawTransfers;
   expandedSettlementKey = null;
   renderSettlements();
+});
+
+els.ledgerNotes.addEventListener("input", () => {
+  state.notes = els.ledgerNotes.value;
+  writeStorage(JSON.stringify(state));
+  els.notesStatus.textContent = "已保存";
+  window.clearTimeout(els.notesStatus._timer);
+  els.notesStatus._timer = window.setTimeout(() => {
+    els.notesStatus.textContent = "自动保存";
+  }, 1200);
 });
 
 els.reloadAppBtn.addEventListener("click", () => {
@@ -314,7 +330,7 @@ els.resetBtn.addEventListener("click", () => {
   expandedMemberId = null;
   expandedSettlementKey = null;
   selectedExpenseIds.clear();
-  state = { members: [], expenses: [], dateRange };
+  state = { members: [], expenses: [], notes: "", dateRange };
   saveAndRender();
 });
 
@@ -346,6 +362,7 @@ function normalizeImportedState(value) {
   return {
     members: value.members,
     expenses: value.expenses,
+    notes: value.notes || "",
     dateRange: normalizeDateRange(value.dateRange || rangeFromExpenses(value.expenses) || defaultDateRange()),
   };
 }
@@ -510,6 +527,7 @@ function switchTab(tab) {
     overview: "款项总览",
     expenses: "新增记账",
     members: "成员管理",
+    notes: "账本备注",
   };
 
   els.tabs.forEach((button) => button.classList.toggle("active", button.dataset.tab === tab));
@@ -520,10 +538,17 @@ function switchTab(tab) {
 function render() {
   renderBackupStatus();
   renderDateRange();
+  renderNotes();
   renderMembers();
   renderExpenseForm();
   renderExpenses();
   renderOverview();
+}
+
+function renderNotes() {
+  if (els.ledgerNotes.value !== (state.notes || "")) {
+    els.ledgerNotes.value = state.notes || "";
+  }
 }
 
 function renderBackupStatus() {

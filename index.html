@@ -35,6 +35,10 @@
             <span aria-hidden="true">☷</span>
             成员
           </button>
+          <button class="tab-button" data-tab="notes" type="button">
+            <span aria-hidden="true">◇</span>
+            备注
+          </button>
         </nav>
 
         <section class="sidebar-panel">
@@ -57,19 +61,21 @@
           <div class="toolbar-actions">
             <div class="date-range-control" aria-label="日期区间">
               <label>
-                开始
+                <span>开始</span>
                 <input id="startDateFilter" type="date" />
               </label>
               <label>
-                结束
+                <span>结束</span>
                 <input id="endDateFilter" type="date" />
               </label>
             </div>
-            <button id="installBtn" class="ghost-button install-button" type="button" hidden>安装</button>
-            <button id="exportBtn" class="ghost-button" type="button" title="导出数据">⇩</button>
-            <button id="importBtn" class="ghost-button" type="button">上传</button>
-            <input id="importFileInput" class="visually-hidden" type="file" accept="application/json,.json" />
-            <button id="resetBtn" class="danger-button" type="button">清空</button>
+            <div class="quick-actions">
+              <button id="installBtn" class="ghost-button install-button" type="button" hidden>安装</button>
+              <button id="exportBtn" class="ghost-button" type="button" title="导出数据">⇩</button>
+              <button id="importBtn" class="ghost-button" type="button">上传</button>
+              <input id="importFileInput" class="visually-hidden" type="file" accept="application/json,.json" />
+              <button id="resetBtn" class="danger-button" type="button">清空</button>
+            </div>
           </div>
         </section>
         <section id="updatePrompt" class="update-prompt" hidden>
@@ -189,6 +195,16 @@
               <span>有账单记录的成员会被保护</span>
               </div>
             <div id="memberTable" class="member-table"></div>
+          </section>
+        </section>
+
+        <section id="notesView" class="view">
+          <section class="panel notes-panel">
+            <div class="panel-heading">
+              <h3>账本备注</h3>
+              <span id="notesStatus">自动保存</span>
+            </div>
+            <textarea id="ledgerNotes" class="notes-textarea" maxlength="5000" placeholder="可以记录长期说明、结算规则、特殊约定或待办事项..."></textarea>
           </section>
         </section>
       </main>
