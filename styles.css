@@ -300,6 +300,13 @@ button {
   color: var(--ink);
 }
 
+.ghost-button.is-active {
+  border-color: #91c7b2;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  font-weight: 700;
+}
+
 .danger-button {
   border-color: #edc8c2;
   background: var(--warn-soft);

@@ -1,5 +1,8 @@
 const STORAGE_KEY = "aa-ledger-state-v2";
 const BACKUP_KEY = "aa-ledger-last-backup";
+const AUTO_BACKUP_DB = "aa-ledger-auto-backup";
+const AUTO_BACKUP_STORE = "handles";
+const AUTO_BACKUP_KEY = "latest";
 const currency = new Intl.NumberFormat("zh-CN", {
   style: "currency",
   currency: "CNY",
@@ -20,6 +23,10 @@ let deferredInstallPrompt = null;
 let expandedSettlementKey = null;
 let editingExpenseId = null;
 let showRawTransfers = false;
+let autoBackupHandle = null;
+let autoBackupReady = false;
+let autoBackupStatus = "";
+let autoBackupTimer = null;
 
 const els = {
   tabs: document.querySelectorAll(".tab-button"),
@@ -73,6 +80,7 @@ const els = {
   notesList: document.querySelector("#notesList"),
   notesStatus: document.querySelector("#notesStatus"),
   installBtn: document.querySelector("#installBtn"),
+  autoBackupBtn: document.querySelector("#autoBackupBtn"),
   exportBtn: document.querySelector("#exportBtn"),
   importBtn: document.querySelector("#importBtn"),
   importFileInput: document.querySelector("#importFileInput"),
@@ -289,17 +297,12 @@ els.editExpenseModal.addEventListener("click", (event) => {
 });
 
 els.exportBtn.addEventListener("click", () => {
-  const data = JSON.stringify(state, null, 2);
-  const blob = new Blob([data], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `aa-ledger-${new Date().toISOString().slice(0, 10)}.json`;
-  link.click();
-  URL.revokeObjectURL(url);
+  downloadBackup();
   writeBackupTime(new Date().toISOString());
   renderBackupStatus();
 });
+
+els.autoBackupBtn.addEventListener("click", setupAutoBackupFile);
 
 els.importBtn.addEventListener("click", () => {
   els.importFileInput.click();
@@ -447,6 +450,148 @@ function writeBackupTime(value) {
   }
 }
 
+function isAutoBackupSupported() {
+  return Boolean(window.isSecureContext && window.showSaveFilePicker && window.indexedDB);
+}
+
+function openAutoBackupDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(AUTO_BACKUP_DB, 1);
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore(AUTO_BACKUP_STORE);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function readAutoBackupHandle() {
+  const db = await openAutoBackupDb();
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(AUTO_BACKUP_STORE, "readonly").objectStore(AUTO_BACKUP_STORE).get(AUTO_BACKUP_KEY);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function writeAutoBackupHandle(handle) {
+  const db = await openAutoBackupDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(AUTO_BACKUP_STORE, "readwrite");
+    tx.objectStore(AUTO_BACKUP_STORE).put(handle, AUTO_BACKUP_KEY);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function initAutoBackup() {
+  if (!isAutoBackupSupported()) {
+    autoBackupStatus = "自动备份：当前浏览器不支持";
+    renderBackupStatus();
+    return;
+  }
+
+  try {
+    autoBackupHandle = await readAutoBackupHandle();
+    autoBackupReady = Boolean(autoBackupHandle);
+    autoBackupStatus = autoBackupReady ? "自动备份：已设置" : "自动备份：未设置";
+  } catch {
+    autoBackupStatus = "自动备份：读取设置失败";
+  }
+  renderBackupStatus();
+}
+
+async function setupAutoBackupFile() {
+  if (!isAutoBackupSupported()) {
+    alert("当前浏览器不支持自动写入本地文件。电脑端 Edge/Chrome 安装版一般可以使用；手机端建议继续用导出备份。");
+    return;
+  }
+
+  try {
+    if (autoBackupHandle) {
+      const requested = await autoBackupHandle.requestPermission({ mode: "readwrite" });
+      if (requested === "granted") {
+        autoBackupReady = true;
+        await writeAutoBackupNow();
+        alert("自动备份已重新授权，并已保存最新数据。");
+        return;
+      }
+      if (!confirm("没有获得原备份文件的写入权限，要重新选择一个备份文件吗？")) return;
+    }
+
+    const handle = await window.showSaveFilePicker({
+      suggestedName: "AA账本-自动备份.json",
+      types: [
+        {
+          description: "AA 账本备份",
+          accept: { "application/json": [".json"] },
+        },
+      ],
+    });
+    autoBackupHandle = handle;
+    autoBackupReady = true;
+    await writeAutoBackupHandle(handle);
+    await writeAutoBackupNow();
+    alert("自动备份已开启。之后每次改动都会覆盖保存到这个文件。");
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      alert("设置自动备份失败，请重新选择一个可写入的位置。");
+    }
+  }
+  renderBackupStatus();
+}
+
+function scheduleAutoBackup() {
+  if (!autoBackupReady || !autoBackupHandle) return;
+  clearTimeout(autoBackupTimer);
+  autoBackupTimer = setTimeout(() => {
+    writeAutoBackupNow();
+  }, 500);
+}
+
+async function writeAutoBackupNow() {
+  if (!autoBackupHandle) return;
+
+  try {
+    const permission = await autoBackupHandle.queryPermission({ mode: "readwrite" });
+    if (permission !== "granted") {
+      const requested = await autoBackupHandle.requestPermission({ mode: "readwrite" });
+      if (requested !== "granted") {
+        autoBackupStatus = "自动备份：需重新授权";
+        autoBackupReady = false;
+        renderBackupStatus();
+        return;
+      }
+    }
+
+    const writable = await autoBackupHandle.createWritable();
+    await writable.write(JSON.stringify(state, null, 2));
+    await writable.close();
+    writeBackupTime(new Date().toISOString());
+    autoBackupStatus = "自动备份：已保存最新数据";
+  } catch {
+    autoBackupStatus = "自动备份：保存失败，请重新设置";
+    autoBackupReady = false;
+  }
+  renderBackupStatus();
+}
+
+function downloadBackup() {
+  const data = JSON.stringify(state, null, 2);
+  const blob = new Blob([data], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = backupFileName();
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function backupFileName() {
+  const date = new Date().toISOString().slice(0, 10);
+  return `AA账本-${date}-${state.expenses.length}笔账单.json`;
+}
+
 function getActiveExpenses() {
   return state.expenses.filter((expense) => isDateInRange(expense.date, dateRange));
 }
@@ -525,6 +670,7 @@ function formatDateTime(value) {
 function saveAndRender() {
   state.dateRange = dateRange;
   writeStorage(JSON.stringify(state));
+  scheduleAutoBackup();
   render();
 }
 
@@ -609,7 +755,9 @@ function saveNotesList(notes) {
 
 function renderBackupStatus() {
   const backupTime = readBackupTime();
-  els.backupStatus.textContent = backupTime ? `上次备份：${formatDateTime(backupTime)}` : "尚未备份，建议先导出一次";
+  const backupText = backupTime ? `上次备份：${formatDateTime(backupTime)}` : "尚未备份，建议先导出一次";
+  els.backupStatus.textContent = autoBackupStatus ? `${backupText} · ${autoBackupStatus}` : backupText;
+  els.autoBackupBtn.classList.toggle("is-active", autoBackupReady);
 }
 
 function renderDateRange() {
@@ -1376,4 +1524,5 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+initAutoBackup();
 render();
