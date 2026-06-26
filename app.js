@@ -320,12 +320,17 @@ els.importFileInput.addEventListener("change", async () => {
       return;
     }
     if (!confirm("上传的数据会覆盖当前设备上的账本，确定继续吗？")) return;
+    if (state.members.length || state.expenses.length || getNotesList().length) {
+      downloadBackup("导入前备份");
+      writeBackupTime(new Date().toISOString());
+    }
     state = normalizeImportedState(imported);
     dateRange = normalizeDateRange(state.dateRange || rangeFromLatestExpense() || defaultDateRange());
     expandedMemberId = null;
     expandedSettlementKey = null;
     selectedExpenseIds.clear();
     els.expenseSearch.value = "";
+    els.memberFilter.value = "";
     saveAndRender();
     alert("账本数据已导入。");
   } catch {
@@ -358,21 +363,83 @@ function loadState() {
 }
 
 function isValidImportedState(value) {
-  return Boolean(
-    value &&
-      Array.isArray(value.members) &&
-      Array.isArray(value.expenses) &&
-      value.members.every((member) => member.id && member.name) &&
-      value.expenses.every((expense) => expense.id && expense.title && Number(expense.amount) >= 0 && expense.payerId && expense.date),
-  );
+  if (!value || !Array.isArray(value.members) || !Array.isArray(value.expenses)) return false;
+
+  const memberIds = new Set();
+  for (const member of value.members) {
+    if (!member || typeof member.id !== "string" || !member.id || typeof member.name !== "string" || !member.name.trim()) {
+      return false;
+    }
+    if (memberIds.has(member.id)) return false;
+    memberIds.add(member.id);
+  }
+
+  return value.expenses.every((expense) => {
+    if (
+      !expense ||
+      typeof expense.id !== "string" ||
+      !expense.id ||
+      typeof expense.title !== "string" ||
+      !expense.title.trim() ||
+      !Number.isFinite(Number(expense.amount)) ||
+      Number(expense.amount) < 0 ||
+      typeof expense.payerId !== "string" ||
+      !memberIds.has(expense.payerId) ||
+      !normalizeDate(expense.date) ||
+      !Array.isArray(expense.participantIds)
+    ) {
+      return false;
+    }
+
+    const participantsValid = expense.participantIds.every((id) => typeof id === "string" && memberIds.has(id));
+    if (!participantsValid) return false;
+
+    if (expense.shares && typeof expense.shares === "object") {
+      return Object.entries(expense.shares).every(
+        ([id, amount]) => memberIds.has(id) && Number.isFinite(Number(amount)) && Number(amount) >= 0,
+      );
+    }
+
+    return true;
+  });
 }
 
 function normalizeImportedState(value) {
   return {
-    members: value.members,
-    expenses: value.expenses,
+    members: value.members.map((member) => ({
+      id: member.id,
+      name: member.name.trim(),
+    })),
+    expenses: value.expenses.map(normalizeExpenseRecord),
     notes: normalizeNotes(value.notes),
     dateRange: normalizeDateRange(value.dateRange || rangeFromExpenses(value.expenses) || defaultDateRange()),
+  };
+}
+
+function normalizeExpenseRecord(expense) {
+  const participantIds = [...new Set(expense.participantIds)];
+  const amount = roundMoney(Number(expense.amount));
+  const shares =
+    expense.shares && typeof expense.shares === "object"
+      ? Object.fromEntries(Object.entries(expense.shares).map(([id, share]) => [id, roundMoney(Number(share))]))
+      : undefined;
+  const weights =
+    expense.weights && typeof expense.weights === "object"
+      ? Object.fromEntries(Object.entries(expense.weights).map(([id, weight]) => [id, roundMoney(Number(weight) || 1)]))
+      : undefined;
+
+  return {
+    id: expense.id,
+    title: expense.title.trim(),
+    amount,
+    payerId: expense.payerId,
+    participantIds,
+    ...(weights ? { weights } : {}),
+    ...(shares ? { shares } : {}),
+    date: normalizeDate(expense.date),
+    note: typeof expense.note === "string" ? expense.note.trim() : "",
+    createdAt: Number(expense.createdAt) || Date.now(),
+    ...(expense.updatedAt ? { updatedAt: Number(expense.updatedAt) || Date.now() } : {}),
   };
 }
 
@@ -555,13 +622,10 @@ async function writeAutoBackupNow() {
   try {
     const permission = await autoBackupHandle.queryPermission({ mode: "readwrite" });
     if (permission !== "granted") {
-      const requested = await autoBackupHandle.requestPermission({ mode: "readwrite" });
-      if (requested !== "granted") {
-        autoBackupStatus = "自动备份：需重新授权";
-        autoBackupReady = false;
-        renderBackupStatus();
-        return;
-      }
+      autoBackupStatus = "自动备份：需点击重新授权";
+      autoBackupReady = false;
+      renderBackupStatus();
+      return;
     }
 
     const writable = await autoBackupHandle.createWritable();
@@ -576,20 +640,19 @@ async function writeAutoBackupNow() {
   renderBackupStatus();
 }
 
-function downloadBackup() {
+function downloadBackup(prefix = "AA账本") {
   const data = JSON.stringify(state, null, 2);
   const blob = new Blob([data], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = backupFileName();
+  link.download = backupFileName(prefix);
   link.click();
   URL.revokeObjectURL(url);
 }
 
-function backupFileName() {
-  const date = new Date().toISOString().slice(0, 10);
-  return `AA账本-${date}-${state.expenses.length}笔账单.json`;
+function backupFileName(prefix = "AA账本") {
+  return `${prefix}-${todayString()}-${state.expenses.length}笔账单.json`;
 }
 
 function getActiveExpenses() {
@@ -610,7 +673,7 @@ function getVisibleExpenses() {
 }
 
 function defaultDateRange() {
-  return rangeForDate(new Date().toISOString().slice(0, 10));
+  return rangeForDate(todayString());
 }
 
 function rangeFromLatestExpense() {
@@ -626,10 +689,10 @@ function rangeFromExpenses(expenses) {
 }
 
 function rangeForDate(value) {
-  const date = normalizeDate(value) || new Date().toISOString().slice(0, 10);
+  const date = normalizeDate(value) || todayString();
   const month = date.slice(0, 7);
   const start = `${month}-01`;
-  const end = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).toISOString().slice(0, 10);
+  const end = localDateString(new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0));
   return { start, end };
 }
 
@@ -644,7 +707,18 @@ function normalizeDateRange(range) {
 function normalizeDate(value) {
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
+  return Number.isNaN(date.getTime()) ? null : localDateString(date);
+}
+
+function todayString() {
+  return localDateString(new Date());
+}
+
+function localDateString(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function isDateInRange(value, range) {
@@ -972,9 +1046,11 @@ function renderExpenses() {
 
   document.querySelectorAll("[data-remove-expense]").forEach((button) => {
     button.addEventListener("click", () => {
-      selectedExpenseIds.delete(button.dataset.removeExpense);
-      if (editingExpenseId === button.dataset.removeExpense) closeEditModal();
-      state.expenses = state.expenses.filter((expense) => expense.id !== button.dataset.removeExpense);
+      const expense = state.expenses.find((item) => item.id === button.dataset.removeExpense);
+      if (!expense || !confirm(`删除「${expense.title}」这笔账单吗？`)) return;
+      selectedExpenseIds.delete(expense.id);
+      if (editingExpenseId === expense.id) closeEditModal();
+      state.expenses = state.expenses.filter((item) => item.id !== expense.id);
       saveAndRender();
     });
   });
@@ -1241,12 +1317,13 @@ function renderSettlementBills(items, title) {
   items.forEach((entry) => {
     const expense = entry.expense || entry;
     const participants = expense.participantIds.map((id) => memberNames.get(id)).filter(Boolean);
+    const participantText = participants.map(escapeHtml).join("、") || "无";
     const row = document.createElement("article");
     row.className = "settlement-bill-item";
     row.innerHTML = `
       <div>
         <strong>${escapeHtml(expense.title)}</strong>
-        <small>${expense.date} · ${escapeHtml(memberNames.get(expense.payerId) || "未知")} 付款 · ${participants.join("、") || "无"} 参与</small>
+        <small>${expense.date} · ${escapeHtml(memberNames.get(expense.payerId) || "未知")} 付款 · ${participantText} 参与</small>
         ${expense.note ? `<div class="note-line">备注：${escapeHtml(expense.note)}</div>` : ""}
       </div>
       <div class="settlement-bill-amounts">
